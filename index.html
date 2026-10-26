@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#202c2a">
+  <meta name="description" content="在浏览器本地读取 JCL，核对洛阳之战25人普通的点名、承伤与死亡过程。">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; worker-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'">
+  <title>照夜 · 洛阳战报</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到战报正文</a>
+  <aside class="sidebar">
+    <a class="brand" href="./" aria-label="照夜洛阳战报首页"><span class="brand-mark">照</span><span><strong>照夜</strong><small>洛阳战报 / JCL REVIEW</small></span></a>
+    <div class="sidebar-line"></div>
+    <p class="nav-label">战斗档案</p>
+    <button class="boss-nav active" data-boss="all"><span class="nav-icon">▦</span><span>全部首领</span><b id="nav-total">0</b></button>
+    <p class="nav-label bosses-label">洛阳之战 · 25人普通</p>
+    <nav id="boss-nav" aria-label="按首领筛选"></nav>
+    <div class="sidebar-bottom">
+      <button class="side-button" id="help-button"><span>ⓘ</span> 使用说明与识别依据</button>
+      <a class="side-button" href="https://wohehuoguo.github.io/jx3-luoyang-guide/" target="_blank" rel="noopener noreferrer"><span>↗</span> 首领机制手册</a>
+      <div class="local-note"><span class="green-dot"></span>日志在本机解析<small>无账号登录 · 无服务器上传</small></div>
+      <p class="credit">坐下来谈谈不@梦江南<small>with codex</small></p>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div class="topbar-location"><span class="topbar-mark">照夜</span><span class="crumb">战斗复盘 <i>/</i> 洛阳之战</span><span class="beta">体验版</span></div>
+      <div class="top-actions">
+        <button class="button ghost" id="demo-button">示例战报</button>
+        <button class="button secondary" id="file-button"><span aria-hidden="true">＋</span> 读取 JCL</button>
+        <button class="button primary" id="directory-button"><span aria-hidden="true">▱</span> 连接日志目录</button>
+      </div>
+    </header>
+    <section class="connection-strip" aria-label="日志目录连接状态">
+      <span class="connection-status"><i id="connection-dot"></i><b id="connection-title">尚未连接日志目录</b></span>
+      <span id="connection-detail">选择包含 JCL 的文件夹，自动发现新战斗</span>
+      <div class="connection-actions"><button id="scan-button" hidden>立即扫描</button><button id="pause-button" hidden>暂停扫描</button><button id="disconnect-button" hidden>断开</button></div>
+    </section>
+    <div class="demo-notice" id="demo-notice" hidden><span><b>示例模式</b> 以下为合成战报，展示分析方式，不是真实玩家记录。</span><button id="leave-demo">返回我的日志 →</button></div>
+    <div class="progress-strip" id="progress-strip" hidden><span id="progress-text">正在读取</span><span class="spinner"></span></div>
+    <div class="review-layout">
+      <section class="battle-rail" aria-label="战斗列表">
+        <div class="rail-title"><div><span class="eyebrow">COMBAT ARCHIVE</span><h1>战斗记录 <span id="battle-count">0</span></h1></div><span class="rail-date">按时间排序 ↓</span></div>
+        <label class="search-field"><span aria-hidden="true">⌕</span><input id="battle-search" type="search" placeholder="搜索首领、文件名" aria-label="搜索战斗"></label>
+        <div class="rail-filters">
+          <select id="outcome-filter" aria-label="筛选战斗结果"><option value="all">全部结果</option><option value="failed">失败 / 减员</option><option value="victory">已记录击破</option><option value="unknown">待确认</option></select>
+          <select id="map-filter" aria-label="筛选日志类型"><option value="verified">已核对25普通</option><option value="all">全部日志与待确认</option></select>
+        </div>
+        <div class="scan-summary" id="scan-summary">目录中的其他副本会自动分开标记</div>
+        <div id="battle-list" class="battle-list" aria-live="polite"></div>
+        <div class="rail-footer"><span class="tiny-dot"></span> 本机历史会保留在当前浏览器</div>
+      </section>
+      <main id="main" class="report-main">
+        <div id="report-view"></div>
+      </main>
+    </div>
+    <footer class="mobile-footer"><button class="text-button" data-action="help">使用说明与识别依据 ↗</button><span>坐下来谈谈不@梦江南 with codex</span></footer>
+  </div>
+  <input id="file-input" type="file" accept=".jcl" multiple hidden>
+  <input id="folder-input" type="file" webkitdirectory multiple hidden>
+  <dialog id="detail-dialog" class="detail-dialog">
+    <div class="dialog-heading"><h2 id="dialog-title">日志证据</h2><button class="icon-button" id="dialog-close" aria-label="关闭详情">×</button></div>
+    <div id="dialog-content"></div>
+  </dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <div class="drop-overlay" id="drop-overlay" hidden><div class="drop-box"><span>↓</span><h2>松开，读取 JCL</h2><p>可一次导入多场战斗，文件始终留在本机</p></div></div>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>

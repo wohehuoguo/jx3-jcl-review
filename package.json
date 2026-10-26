@@ -1,0 +1,12 @@
+{
+  "name": "jx3-jcl-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-local JCL death and encounter review for Luoyang 25-player normal.",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "dev": "python3 -m http.server 8771 --bind 127.0.0.1"
+  },
+  "license": "MIT"
+}

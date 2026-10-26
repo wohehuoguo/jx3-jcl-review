@@ -1,0 +1,13 @@
+import {mkdir,writeFile} from 'node:fs/promises';
+import {demoFiles} from '../src/demo.js';
+const root=new URL('../test-output/',import.meta.url);
+await mkdir(new URL('role-a/combat_logs/',root),{recursive:true});
+await mkdir(new URL('role-b/combat_logs/',root),{recursive:true});
+const demos=demoFiles();
+await writeFile(new URL('luoyang-b5.jcl',root),demos[0].text);
+await writeFile(new URL('role-b/combat_logs/luoyang-b5.jcl',root),demos[0].text);
+await writeFile(new URL('role-a/combat_logs/luoyang-b1.jcl',root),demos[3].text);
+await writeFile(new URL('wrong-map.jcl',root),demos[0].text.replace(/835}/g,'834}'));
+await writeFile(new URL('role-a/combat_logs/pending.jcl.log',root),demos[3].text.slice(0,1000));
+await writeFile(new URL('malformed.jcl',root),'not a JCL file\n');
+console.log('Synthetic files generated in test-output/; none are real player logs.');
