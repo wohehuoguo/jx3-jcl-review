@@ -29,9 +29,22 @@ export function demoFiles() {
   const files=[];
   const five=fixture('史朝义',139312,21);
   five.cast(2000,45526);five.cast(60000,45711);
-  for(let i=1;i<=10;i++) five.buff(76000+i, i,34095);
-  for(let i=11;i<=15;i++) five.buff(76000+i, i,34096,2);
+  // A synthetic 20-red + 20-blue landing sequence, including observable cancellation.
+  const landings=[],colourState=new Map();
+  for(let i=21;i<=25;i++)landings.push([i,'red'],[i,'red'],[i,'blue'],[i,'blue']);
+  for(let i=1;i<=10;i++)landings.push([i,'red']);
+  for(let i=11;i<=15;i++)landings.push([i,'blue'],[i,'blue']);
+  landings.forEach(([i,colour],n)=>{
+    const t=62250+Math.floor(n/4)*2250+(n%4)*20;
+    const p=colourState.get(i)||{red:0,blue:0};
+    const other=colour==='red'?'blue':'red';
+    five.hit(t,i,colour==='red'?45706:45708,8900);
+    if(p[other]>0){p[other]--;five.buff(t+1,i,other==='red'?34095:34096,p[other],p[other]===0);}
+    else{p[colour]++;five.buff(t+1,i,colour==='red'?34095:34096,p[colour]);}
+    colourState.set(i,p);
+  });
   five.cast(90000,45686);five.hit(92000,25,45682,58000);five.buff(92001,25,34095,3);five.heal(92500,25,50000);
+  five.cast(95000,45687);five.hit(97000,1,45685,3000);five.buff(97001,1,34095,2);
   for(const [i,b] of [[11,34115],[12,34114],[13,34113]]) five.buff(103000,i,b);
   five.cast(103050,45696);
   for(const [i,t] of [[11,105050],[12,106550],[13,108050]]) {

@@ -9,7 +9,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const compact=n=>n>=1e8?(n/1e8).toFixed(2)+'亿':n>=1e4?(n/1e4).toFixed(1)+'万':Math.round(n).toLocaleString('zh-CN');
 const exact=n=>Math.round(n||0).toLocaleString('zh-CN');
 const badge=(confidence)=>`<span class="confidence ${esc(confidence)}">${{confirmed:'确认事件',likely:'相邻推断',unknown:'待确认'}[confidence]||'待确认'}</span>`;
-const state={reports:[],demos:[],demo:false,selected:null,boss:'all',outcome:'all',map:'verified',search:'',tab:'overview',detailSearch:'',eventKind:'all',eventLimit:200,busy:false};
+const state={reports:[],demos:[],demo:false,selected:null,boss:'all',outcome:'all',map:'verified',search:'',tab:'overview',detailSearch:'',eventKind:'all',eventLimit:200,busy:false,snapshotKey:null};
 let directory=null,paused=false,scanning=false,scanGeneration=0,lastScan=null,scanTimer=null,observed=new Map(),pendingCount=0,dirErrors=0;
 let worker,serial=0;
 const jobs=new Map();
@@ -87,13 +87,13 @@ function emptyHTML() {
 function renderReport() {
   const r=current();
   if(!r){$('#report-view').innerHTML=emptyHTML();return;}
-  const tabs=[['overview','战斗总览',''],['mechanics','点名与承伤',r.associations.length],['deaths','死亡日志',r.deaths.length],['events','关联证据',r.evidence.length]];
+  const tabs=[['overview','战斗总览',''],['mechanics','点名与承伤',r.associations.length],...(r.boss.id==='b5'?[['balance','赤幽快照',r.balance?.checkpoints?.length||0]]:[]),['deaths','死亡日志',r.deaths.length],['events','关联证据',r.evidence.length]];
   $('#report-view').innerHTML=`<div class="report-heading"><div><span class="eyebrow">LUOYANG / ENCOUNTER ${r.boss.index||'—'}</span><h2>${esc(r.boss.name)}</h2><div class="report-meta"><span class="validation-badge ${r.validation.status==='verified'?'':'warning'}">${esc(r.validation.status==='verified'?'25人普通 · 地图835':r.validation.label)}</span><span>${esc(dateText(r))}</span><span class="separator">·</span><span>${esc(r.meta.server||'区服未记录')}</span></div></div><div class="report-actions"><button class="button secondary" data-action="export" aria-label="导出当前战报 JSON">↓ <span class="export-label">导出战报</span></button></div></div><div class="stats-grid"><div class="stat-card"><span class="stat-label">战斗时长</span><strong class="stat-value">${durationText(r)}</strong><span class="stat-sub">${esc(r.outcomeLabel)}</span></div><div class="stat-card danger"><span class="stat-label">死亡记录</span><strong class="stat-value">${r.deaths.length}<small class="stat-unit">次</small></strong><span class="stat-sub">${r.stats.deadPlayers}人重伤 · 战复后再次死亡单独记录</span></div><div class="stat-card"><span class="stat-label">识别到的团队成员</span><strong class="stat-value">${r.stats.players}<small class="stat-unit">人</small></strong><span class="stat-sub">人数只展示，不作为副本难度依据</span></div><div class="stat-card"><span class="stat-label">机制核对窗口</span><strong class="stat-value">${r.associations.length}<small class="stat-unit">组</small></strong><span class="stat-sub">点名 Buff × 实际命中名单</span></div></div><nav class="tabs" aria-label="战报详情">${tabs.map(([key,label,n])=>`<button class="tab ${state.tab===key?'active':''}" data-tab="${key}" aria-current="${state.tab===key?'page':'false'}">${label}${n!==''?'<small>'+n+'</small>':''}</button>`).join('')}</nav><div id="tab-content"></div><details class="report-footnote"><summary>识别依据与记录完整度 · ${r.meta.startMarker?'进战✓':'缺进战标记'} / ${r.meta.endMarker?'脱战✓':'缺脱战标记'} / ${esc(r.meta.encoding)}</summary><p>${esc(r.validation.reason)}</p><ul>${r.warnings.map(w=>'<li>'+esc(w)+'</li>').join('')}<li>日志里的命中、免疫和零伤事件会一起核对；点名之外被命中不自动等于操作失误。</li><li>没有副本全团连续坐标，不根据名单推算走位。未知技能保留 ID。</li><li>规则依据：${esc(RULE_VERSION)}，需要真实日志持续校准。</li></ul><button class="text-button" data-action="help">查看资料来源与使用说明 →</button></details><span class="report-footnote file-label">${esc(r.meta.filename)} · ${r.meta.parsed.toLocaleString()}条记录 · ${esc(r.id.slice(0,12))}</span>`;
   renderTab();
 }
 function renderTab() {
   const r=current();if(!r)return;
-  $('#tab-content').innerHTML=state.tab==='overview'?overviewHTML(r):state.tab==='mechanics'?mechanicsHTML(r):state.tab==='deaths'?deathsHTML(r):eventsHTML(r);
+  $('#tab-content').innerHTML=state.tab==='overview'?overviewHTML(r):state.tab==='mechanics'?mechanicsHTML(r):state.tab==='deaths'?deathsHTML(r):state.tab==='balance'?snapshotsHTML(r):eventsHTML(r);
 }
 function deathRows(r,limit=Infinity) {
   const q=state.detailSearch.toLocaleLowerCase();
@@ -105,7 +105,7 @@ function balanceHTML(r) {
   const s=r.balance?.state;
   if(!s)return `<div class="note-panel"><div class="section-heading"><h3><span class="section-index">02</span>怎么读这份战报</h3></div><p>先看关键事件，再看点名与实际承伤名单。<br>点击任意死亡记录，查看之前8秒内的伤害、治疗与 Buff。</p><button class="text-button" data-tab="mechanics">打开点名与承伤 →</button></div>`;
   const total=s.red+s.blue;
-  return `<section class="balance-panel"><div class="section-heading"><h3><span class="section-index">02</span>赤幽人数核对</h3><small>${timeLabel(s.t-r.meta.start)} · ${r.balance.settlements.length?'结算窗口':'最近状态'}</small></div><div class="balance-counts"><div class="colour-number">${s.red}<small>赤</small></div><span class="ratio-colon">:</span><div class="colour-number blue">${s.blue}<small>幽</small></div><div class="balance-gap">记录人数差<b>${s.gap}</b></div></div><div class="ratio-bar"><span class="red" style="width:${total?s.red/total*100:0}%"></span><span class="blue" style="width:${total?s.blue/total*100:0}%"></span></div><p class="balance-caption">按携带颜色的人数计，单人多层只算1人。${esc(s.discrepancy|| (s.known?'已观察到P1或清色基线，仍请核对记录完整度。':'未确认初始状态；这里只展示可见记录，不把未记录者当无色。'))}</p><div class="balance-faces">${s.roster.filter(p=>p.red||p.blue||p.isolated).slice(0,18).map(p=>personChip(p,p.red?'red':p.blue?'blue':'muted',(p.red?'赤'+p.red:p.blue?'幽'+p.blue:'')+(p.isolated?'·隔绝':''))).join('')}</div></section>`;
+  return `<section class="balance-panel"><div class="section-heading"><h3><span class="section-index">02</span>赤幽人数核对</h3><small>${timeLabel(s.t-r.meta.start)} · ${r.balance.settlements.length?'结算窗口':'最近状态'}</small></div><div class="balance-counts"><div class="colour-number">${s.red}<small>赤</small></div><span class="ratio-colon">:</span><div class="colour-number blue">${s.blue}<small>幽</small></div><div class="balance-gap">记录人数差<b>${s.gap}</b></div></div><div class="ratio-bar"><span class="red" style="width:${total?s.red/total*100:0}%"></span><span class="blue" style="width:${total?s.blue/total*100:0}%"></span></div><p class="balance-caption">按携带颜色的人数计，单人多层只算1人。${esc(s.discrepancy|| (s.known?'已观察到P1或清色基线，仍请核对记录完整度。':'未确认初始状态；这里只展示可见记录，不把未记录者当无色。'))}</p><div class="balance-faces">${s.roster.filter(p=>p.red||p.blue||p.isolated).slice(0,18).map(p=>personChip(p,p.red?'red':p.blue?'blue':'muted',(p.red?'赤'+p.red:p.blue?'幽'+p.blue:'')+(p.isolated?'·隔绝':''))).join('')}</div><button class="text-button snapshot-link" data-tab="balance">查看全团逐人赤幽快照 · ${r.balance?.checkpoints?.length||0}张 →</button></section>`;
 }
 function overviewHTML(r) {
   const events=r.timeline.filter(e=>e.type!=='death').slice(0,4);
@@ -120,6 +120,31 @@ function mechanicCard(a,r) {
   const markLabel=relatedState?'关联状态':'点名记录';
   const note=relatedState?'关联状态来自携弹或倒计时 Buff，不等于投弹点名或爆炸来源；仅供对照实际命中。':a.note;
   return `<article class="mechanic-card"><div class="mechanic-header"><time>${timeLabel(a.time-r.meta.start)}</time><h3>${esc(a.name)}</h3><button class="text-button" data-lines="${a.lines.join(',')}">事件证据 ↗</button></div>${a.marked.length||hasMarkRule?`<div class="roster-line"><span class="roster-label">${markLabel}<b>${a.marked.length}</b></span><div class="roster-members">${a.marked.length?a.marked.map(p=>personChip(p,'mark',relatedState?p.buffName:'')).join(''):'<span class="empty-inline">未匹配到关联 Buff</span>'}</div></div>`:''}<div class="roster-line"><span class="roster-label">实际命中<b>${a.hit.length}</b></span><div class="roster-members">${a.hit.map(p=>personChip(p,'',p.immune?'免疫':p.damage?compact(p.damage):'命中')).join('')}</div></div>${!relatedState&&a.marked.length&&a.extraHit.length?`<div class="roster-line"><span class="roster-label">点名外命中<b>${a.extraHit.length}</b></span><div class="roster-members">${a.extraHit.map(p=>personChip(p,'muted')).join('')}</div></div>`:''}${deaths.length?`<div class="roster-line"><span class="roster-label">随后重伤<b>${deaths.length}</b></span><div class="roster-members">${deaths.map(p=>personChip(p,'red')).join('')}</div></div>`:''}<p class="mechanic-note">${esc(note)} · <span>s${a.skill}</span></p></article>`;
+}
+function selectedSnapshot(r) {
+  const list=r.balance?.checkpoints||[];
+  return list.find(c=>c.key===state.snapshotKey)||list.find(c=>c.category==='circles')||list[0];
+}
+function snapshotsHTML(r) {
+  const list=r.balance?.checkpoints||[],s=selectedSnapshot(r);
+  if(!s)return '<p class="empty-inline">没有可用的机制快照。旧版战报请重新导入同一份 JCL，系统会更新分析结果；记录不完整时可能无法识别窗口。</p>';
+  const index=list.indexOf(s);
+  return `<p class="mechanic-intro">逐人查看接圈、背面二式、每次幽影引导后的赤／幽层数。全团名单始终保留，变化与上一张快照对照。</p><div class="snapshot-controls"><button class="button secondary" ${index?'data-checkpoint="'+list[index-1].key+'"':'disabled'} aria-label="上一张快照">←</button><label>机制快照<select id="buff-checkpoint" aria-label="选择赤幽快照">${list.map(c=>`<option value="${esc(c.key)}" ${c.key===s.key?'selected':''}>${timeLabel(c.time-r.meta.start)} · ${esc(c.label)}</option>`).join('')}</select></label><button class="button secondary" ${index<list.length-1?'data-checkpoint="'+list[index+1].key+'"':'disabled'} aria-label="下一张快照">→</button></div><section class="snapshot-heading"><div><span class="eyebrow">TEAM BUFF SNAPSHOT · ${index+1} / ${list.length}</span><h3>${esc(s.label)}</h3><p>${timeLabel(s.time-r.meta.start)} · 已识别${s.roster.length}名玩家 · ${s.known?'已观察到颜色基线':'缺少颜色基线，未记录的层数显示 ?'}</p></div><button class="text-button" data-lines="${s.lines.join(',')}">核对快照事件 ↗</button></section><div class="snapshot-totals"><span class="red">${s.red}<small>人带赤</small></span><span class="blue">${s.blue}<small>人带幽</small></span><span>${s.gap}<small>可见人数差</small></span><span>${s.clear??'?'}<small>无色</small></span><span>${s.isolated}<small>隔绝</small></span></div><p class="mechanic-note snapshot-note">${esc(s.note)} 人数统计按人头，表格按层数。</p><div class="view-toolbar"><input type="search" data-search="balance" aria-label="搜索快照玩家" placeholder="搜索玩家名（默认显示全团）" value="${esc(state.detailSearch)}"></div><div id="snapshot-roster">${snapshotRows(r)}</div><p class="snapshot-previous">${index?'变化对照上一张：'+timeLabel(list[index-1].time-r.meta.start)+' · '+esc(list[index-1].label):'这是第一张机制快照；变化列没有可对照的前一张。'}</p>`;
+}
+function snapshotRows(r) {
+  const list=r.balance?.checkpoints||[],s=selectedSnapshot(r);if(!s)return '';
+  const previous=list[list.indexOf(s)-1],q=state.detailSearch.toLocaleLowerCase();
+  const layer=(p,key)=>p[key]>0?String(p[key]):p.known?'0':'?';
+  const rows=s.roster.filter(p=>!q||p.name.toLocaleLowerCase().includes(q));
+  return `<div class="data-table-wrap"><table class="data-table snapshot-table"><thead><tr><th>玩家</th><th>赤煞层数</th><th>幽煞层数</th><th>隔绝</th><th>重伤</th><th>较上一张变化</th></tr></thead><tbody>${rows.map(p=>{
+    const prev=previous?.roster.find(x=>x.id===p.id),changes=[];
+    if(prev) {
+      for(const [key,label] of [['red','赤'],['blue','幽']])if(layer(prev,key)!==layer(p,key))changes.push(label+' '+layer(prev,key)+' → '+layer(p,key));
+      if(prev.isolated!==p.isolated)changes.push(p.isolated?'获得隔绝':'隔绝移除');
+      if(prev.dead!==p.dead)changes.push(p.dead?'重伤':'恢复活动');
+    }
+    return `<tr class="${changes.length?'buff-changed':''}"><td>${esc(p.name)}</td><td class="${p.red?'snapshot-red':''}">${layer(p,'red')}</td><td class="${p.blue?'snapshot-blue':''}">${layer(p,'blue')}</td><td>${p.isolated?'<span class="isolation-tag">隔绝</span>':'—'}</td><td>${p.dead?'重伤':'—'}</td><td class="buff-delta">${changes.length?changes.map(esc).join('；'):prev?'无变化':'—'}</td></tr>`;
+  }).join('')}</tbody></table></div>${!rows.length?'<p class="empty-inline">没有匹配的玩家。</p>':''}`;
 }
 function mechanicsHTML(r) {
   return `<p class="mechanic-intro">不需要预设分组。直接看每次点了谁、谁实际承伤或命中、各有几人；有多个圈但不能拆分时，保留合并名单。</p><div class="view-toolbar"><input type="search" data-search="mechanics" aria-label="搜索机制或玩家" placeholder="搜索技能或玩家名" value="${esc(state.detailSearch)}"></div><div id="mechanic-rows">${mechanicRows(r)}</div>`;
@@ -160,14 +185,14 @@ function showLine(line) {
   openDialog('L'+e.line+' · '+e.name,`<p class="dialog-description">${timeLabel(e.time-r.meta.start)} · ${esc(e.caster)} → ${esc(e.target)}<br>事件码 ${e.kind}${e.skill?' · 技能 / Buff ID '+esc(e.skill):''}${e.level?' · 等级 '+e.level:''}</p><h3 class="dialog-content-heading">原始日志行（最多保留700字符）</h3><pre class="raw-log">${esc(e.raw)}</pre>`);
 }
 function showHelp() {
-  openDialog('怎么用照夜复盘',`<section class="help-section"><h3>01 · 连接日志目录</h3><p>在茗伊团队工具中开启“战斗事件记录”“在秘境启用”和“保存附近所有角色”。从旁边的齿轮打开数据目录，选择包含 combat_logs 的目录；也可以选多个角色目录的上一级。最小战斗时间建议调低，以保留开场秒灭的日志。</p><p>桌面 Chrome / Edge 支持读取目录并持续发现新文件。页面关闭后停止扫描；再次打开可能需要重新授予权限。只请求读取权限，不修改原始文件。不支持持续目录访问的浏览器仍可读取文件或导入文件夹快照。</p></section><button class="button secondary folder-help" data-action="folder">导入文件夹快照（不持续扫描）</button><section class="help-section"><h3>02 · 怎样校验25人普通</h3><p>读取 JCL 内部进脱战事件中的地图 ID，当前参考资料将835对应到25人普通洛阳之战。再依据已知 NPC 模板、施法与命中识别首领。文件名与实到人数仅供参考。未知地图、新版本或冲突记录显示待确认，不套用其他难度规则。</p><p>这是类型与字段完整度核对，不宣称已对日志做官方防篡改认证。当前规则：${esc(RULE_VERSION)}。</p></section><section class="help-section"><h3>03 · 点了谁，谁实际承伤</h3><p>从 Buff 获得者和时间窗口关联点名；实际名单包含伤害、零伤命中与免疫事件。多人同时被点时可能合并多个圈，日志没有圈归属就保留合并名单。点名外被命中、没出现在命中列表，都不自动等于失误。</p><p>幽影斩同轮注视者中若只有一人出现在该次命中列表，会按默认目标必命中的机制关联到该人，仍需在真实日志中校准。无需输入预期分组。</p></section><section class="help-section"><h3>04 · 怎样判断死亡与团灭</h3><p>每条重伤通知关联之前8秒的伤害、治疗和 Buff；优先查找临死1.5秒内的同击杀者受击。固定致命机制与相邻受击推断分开标记。没有证据就保留未知，不把最先倒下者直接认定为责任人。</p><p>依据首领重伤记录确认击破；全员重伤后脱战可标记团灭。部分减员或主动重置无法可靠区分时保留结果待确认。只提供日志事实与线索，不通过总治疗量直接分配责任。</p></section><section class="help-section"><h3>05 · 本机数据与导出</h3><p>解析在当前浏览器的工作线程中完成，无网络上传或 AI 调用。分析结果与所选目录句柄保存在当前浏览器本机；不同设备或浏览器不会同步。原始 JCL 不复制到云端。可导出当前战报 JSON 备份。相同内容只保存一份；不同记录者的同场日志暂分别展示。</p><p>体验版没有真实洛阳JCL样本回归，内置五场均为明确标注的合成示例。未知技能保留数字 ID，不伪造技能名或全团位置。</p></section><section class="help-section"><h3>资料与源码</h3><ul>${SOURCES.map(s=>`<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.name)} ↗</a></li>`).join('')}<li><a href="https://github.com/wohehuoguo/jx3-jcl-review" target="_blank" rel="noopener noreferrer">照夜网页源码 ↗</a></li></ul></section>`);
+  openDialog('怎么用照夜复盘',`<section class="help-section"><h3>01 · 连接日志目录</h3><p>在茗伊团队工具中开启“战斗事件记录”“在秘境启用”和“保存附近所有角色”。从旁边的齿轮打开数据目录，选择包含 combat_logs 的目录；也可以选多个角色目录的上一级。最小战斗时间建议调低，以保留开场秒灭的日志。</p><p>桌面 Chrome / Edge 支持读取目录并持续发现新文件。页面关闭后停止扫描；再次打开可能需要重新授予权限。只请求读取权限，不修改原始文件。不支持持续目录访问的浏览器仍可读取文件或导入文件夹快照。</p></section><button class="button secondary folder-help" data-action="folder">导入文件夹快照（不持续扫描）</button><section class="help-section"><h3>02 · 怎样校验25人普通</h3><p>读取 JCL 内部进脱战事件中的地图 ID，当前参考资料将835对应到25人普通洛阳之战。再依据已知 NPC 模板、施法与命中识别首领。文件名与实到人数仅供参考。未知地图、新版本或冲突记录显示待确认，不套用其他难度规则。</p><p>这是类型与字段完整度核对，不宣称已对日志做官方防篡改认证。当前规则：${esc(RULE_VERSION)}。</p></section><section class="help-section"><h3>03 · 点了谁，谁实际承伤</h3><p>从 Buff 获得者和时间窗口关联点名；实际名单包含伤害、零伤命中与免疫事件。多人同时被点时可能合并多个圈，日志没有圈归属就保留合并名单。点名外被命中、没出现在命中列表，都不自动等于失误。</p><p>幽影斩同轮注视者中若只有一人出现在该次命中列表，会按默认目标必命中的机制关联到该人，仍需在真实日志中校准。无需输入预期分组。</p></section><section class="help-section"><h3>老五 · 全团赤幽快照</h3><p>在“赤幽快照”中切换接圈、一式、背面二式、逐次幽影引导和戾煞后的全团名单。每行展示赤煞层数、幽煞层数、隔绝、重伤状态，以及相对上一快照的变化。所有快照都来自该时间点之前的 Buff 记录，不用预设分组。</p><p>接圈窗口依据技能事件分段，不能由伤害条数证明40圈接全。默认取最后命中后0.5秒内状态；记录不足时不会补全。旧版战报请重新导入同一份 JCL，会自动升级分析结果。</p></section><section class="help-section"><h3>04 · 怎样判断死亡与团灭</h3><p>每条重伤通知关联之前8秒的伤害、治疗和 Buff；优先查找临死1.5秒内的同击杀者受击。固定致命机制与相邻受击推断分开标记。没有证据就保留未知，不把最先倒下者直接认定为责任人。</p><p>依据首领重伤记录确认击破；全员重伤后脱战可标记团灭。部分减员或主动重置无法可靠区分时保留结果待确认。只提供日志事实与线索，不通过总治疗量直接分配责任。</p></section><section class="help-section"><h3>05 · 本机数据与导出</h3><p>解析在当前浏览器的工作线程中完成，无网络上传或 AI 调用。分析结果与所选目录句柄保存在当前浏览器本机；不同设备或浏览器不会同步。原始 JCL 不复制到云端。可导出当前战报 JSON 备份。相同内容只保存一份；不同记录者的同场日志暂分别展示。</p><p>体验版没有真实洛阳JCL样本回归，内置五场均为明确标注的合成示例。未知技能保留数字 ID，不伪造技能名或全团位置。</p></section><section class="help-section"><h3>资料与源码</h3><ul>${SOURCES.map(s=>`<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.name)} ↗</a></li>`).join('')}<li><a href="https://github.com/wohehuoguo/jx3-jcl-review" target="_blank" rel="noopener noreferrer">照夜网页源码 ↗</a></li></ul></section>`);
 }
 async function importFiles(files,{demo=false}={}) {
   const selected=Array.from(files).filter(f=>/\.jcl$/i.test(f.name));
   if(!selected.length){toast('没有找到 .jcl 文件；进行中的 .jcl.log 会在战斗结束后再解析。');return;}
   if(state.busy){toast('当前正在解析，请稍后再导入。');return;}
   busy(true);
-  const errors=[];let added=0,duplicates=0;
+  const errors=[];let added=0,updated=0,duplicates=0;
   if(!demo){
     state.demo=false;state.selected=null;state.boss='all';state.outcome='all';state.search='';state.tab='overview';state.detailSearch='';
     $('#battle-search').value='';$('#outcome-filter').value='all';
@@ -177,8 +202,10 @@ async function importFiles(files,{demo=false}={}) {
     $('#progress-text').textContent=`本机解析 ${i+1} / ${selected.length} · ${selected[i].name}`;
     try {
       const report=await parseFile(selected[i],demo), pool=demo?state.demos:state.reports;
-      if(pool.some(r=>r.id===report.id)){duplicates++;continue;}
-      pool.push(report);newReports.push(report);added++;
+      const existing=pool.findIndex(r=>r.id===report.id);
+      if(existing>=0&&pool[existing].analysisVersion>=report.analysisVersion){duplicates++;continue;}
+      if(existing>=0){pool[existing]=report;updated++;}else{pool.push(report);added++;}
+      newReports.push(report);
       if(!demo) {try{await saveReport(report);}catch{toast('当前浏览器无法保存本机历史，战报仍可在本页查看并导出。');}}
       if(!state.selected)state.selected=report.id;
       render();
@@ -188,7 +215,7 @@ async function importFiles(files,{demo=false}={}) {
     state.map='all';$('#map-filter').value='all';state.selected=newReports[0].id;
   }
   busy(false);render();
-  toast(`新增 ${added} 场${duplicates?'，跳过'+duplicates+'份重复文件':''}${errors.length?'；'+errors.length+'份读取失败：'+errors[0]:''}`);
+  toast(`新增 ${added} 场${updated?'，更新'+updated+'场旧版战报':''}${duplicates?'，跳过'+duplicates+'份重复文件':''}${errors.length?'；'+errors.length+'份读取失败：'+errors[0]:''}`);
 }
 async function loadDemo() {
   if(state.busy)return;
@@ -253,6 +280,7 @@ document.addEventListener('click',event=>{
   if(button.dataset.boss){state.boss=button.dataset.boss;state.selected=null;state.tab='overview';state.detailSearch='';render();}
   else if(button.dataset.report){state.selected=button.dataset.report;state.tab='overview';state.detailSearch='';renderList();renderReport();if(innerWidth<760)$('#report-view').scrollIntoView({behavior:'smooth',block:'start'});}
   else if(button.dataset.tab){state.tab=button.dataset.tab;state.detailSearch='';state.eventKind='all';state.eventLimit=200;renderReport();}
+  else if(button.dataset.checkpoint){state.snapshotKey=button.dataset.checkpoint;renderTab();}
   else if(button.dataset.death)showDeath(button.dataset.death);
   else if(button.dataset.line)showLine(button.dataset.line);
   else if(button.dataset.lines)openDialog('机制关联事件',evidenceHTML(button.dataset.lines.split(','),current()));
@@ -297,9 +325,10 @@ document.addEventListener('input',e=>{
   const r=current();if(!r)return;
   if(e.target.dataset.search==='deaths')$('#death-rows').innerHTML=deathRows(r);
   else if(e.target.dataset.search==='mechanics')$('#mechanic-rows').innerHTML=mechanicRows(r);
+  else if(e.target.dataset.search==='balance')$('#snapshot-roster').innerHTML=snapshotRows(r);
   else {state.eventLimit=200;$('#event-rows').innerHTML=eventRows(r);}
 });
-document.addEventListener('change',e=>{if(e.target.id==='event-kind'){state.eventKind=e.target.value;state.eventLimit=200;$('#event-rows').innerHTML=eventRows(current());}});
+document.addEventListener('change',e=>{if(e.target.id==='buff-checkpoint'){state.snapshotKey=e.target.value;renderTab();}else if(e.target.id==='event-kind'){state.eventKind=e.target.value;state.eventLimit=200;$('#event-rows').innerHTML=eventRows(current());}});
 let dragDepth=0;
 document.addEventListener('dragenter',e=>{if(e.dataTransfer?.types.includes('Files')){e.preventDefault();dragDepth++;$('#drop-overlay').hidden=false;}});
 document.addEventListener('dragover',e=>{if(e.dataTransfer?.types.includes('Files'))e.preventDefault();});

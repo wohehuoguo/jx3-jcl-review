@@ -1,4 +1,5 @@
 import {parseLua} from './lua.js';
+import {buildBuffCheckpoints} from './balance.js';
 import {BOSSES, MAPS, SKILLS, BUFFS, MARKS, RULE_VERSION, skillInfo} from './data.js';
 
 const num = x => Number.isFinite(Number(x)) ? Number(x) : 0;
@@ -313,8 +314,9 @@ export function analyzeText(text, filename='未命名.jcl', options={}) {
     ? {title:'首领击破已记录',detail:'可以继续复盘其中的减员和机制命中；通关不等于没有失误。',confidence:'confirmed'}
     : issues.find(i=>i.title.includes('致命结算')) || issues.find(i=>i.confidence==='confirmed') || issues[0] ||
       {title:deaths.length?'已还原死亡记录，机制原因待核对':'没有足够证据判断团灭原因',detail:'查看死亡前受击、Buff 与机制名单；不会把最先死亡的人自动认定为责任人。',confidence:'unknown'};
+  const checkpoints=special&&boss.id==='b5'?buildBuffCheckpoints(events,people,meta):[];
   const evidenceLines=new Set([
-    ...deaths.flatMap(d=>d.evidence),...issues.flatMap(i=>i.lines),...associations.flatMap(a=>a.lines),...phases.map(p=>p.line)
+    ...deaths.flatMap(d=>d.evidence),...issues.flatMap(i=>i.lines),...associations.flatMap(a=>a.lines),...phases.map(p=>p.line),...checkpoints.flatMap(c=>c.lines)
   ]);
   const evidence=events.filter(e=>evidenceLines.has(e.line)).slice(0,6000).map(e=>{
     const info=e.skill?skillInfo(e):null;
@@ -330,8 +332,8 @@ export function analyzeText(text, filename='未命名.jcl', options={}) {
     ...issues.map(i=>({t:i.time,type:'issue',label:i.title,line:i.lines[0]})),
     ...deaths.map(d=>({t:d.time,type:'death',label:d.name+' · '+d.cause,line:d.line,key:d.key}))
   ].sort((a,b)=>a.t-b.t).slice(0,200);
-  return {schema:1,meta,validation,boss,outcome,outcomeLabel,summary,issues,deaths,associations,players,phases,timeline,evidence,
-    balance:boss.id==='b5'?{snapshots:compact.filter((s,i)=>i===0||s.t-compact[i-1].t>200||i===compact.length-1).slice(-300),settlements,state:finalState}:null,
+  return {schema:1,analysisVersion:2,meta,validation,boss,outcome,outcomeLabel,summary,issues,deaths,associations,players,phases,timeline,evidence,
+    balance:boss.id==='b5'?{snapshots:compact.filter((s,i)=>i===0||s.t-compact[i-1].t>200||i===compact.length-1).slice(-300),settlements,state:finalState,checkpoints}:null,
     stats:{damage:totalDamage,heal:totalHeal,deaths:deaths.length,deadPlayers:new Set(deaths.map(d=>d.id)).size,players:players.length,mechanics:associations.length,unknownSkills:unknownSkills.size},
     warnings,demo:!!options.demo};
 }
